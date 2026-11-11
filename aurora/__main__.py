@@ -44,6 +44,20 @@ def publish(topic, title, message, priority=3):
         return confirmation["id"]
     except (OSError, ValueError, AttributeError) as error:
         code = getattr(error, "code", None)
+        if code == 429:
+            detail = "ntfy limitó el envío (HTTP 429)."
+            try:
+                diagnostic = json.loads(error.read(4096))
+                if isinstance(diagnostic, dict) and type(diagnostic.get("code")) is int:
+                    detail += f" Código ntfy {diagnostic['code']}."
+            except (OSError, ValueError):
+                pass
+            retry_after = error.headers.get("Retry-After", "") if error.headers else ""
+            if re.fullmatch(r"[0-9]{1,10}", retry_after):
+                detail += f" Espera al menos {int(retry_after)} segundos antes de reintentar."
+            else:
+                detail += " El servidor no indicó cuánto esperar."
+            raise RuntimeError(detail) from None
         # Keep the topic, request, and any upstream response body out of logs.
         raise RuntimeError(f"ntfy publish unconfirmed{f' (HTTP {code})' if code else ''}") from None
 
